@@ -12,7 +12,6 @@ jobs:
     steps:
       - name: Ping Supabase
         run: |
-          # 👇 SUBSTITUA PELO SEU REF ID
           URL="https://spyrzevebsvmartoijgl.supabase.co/rest/v1/"
           
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
