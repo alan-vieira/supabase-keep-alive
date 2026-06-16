@@ -2,23 +2,33 @@ name: Supabase Keep-Alive
 
 on:
   schedule:
-    # Executa a cada 5 dias às 12:00 UTC (9h no horário de Brasília)
-    - cron: '0 12 */5 * *'
-  workflow_dispatch: # Permite execução manual
+    # Executa toda segunda e quinta às 12:00 UTC (9h no horário de Brasília)
+    - cron: '0 12 * * 1,4'
+  workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase
+      - name: Ping Supabase Database
+        env:
+          SUPABASE_URL: "https://spyrzevebsvmartoijgl.supabase.co"
+          SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNweXJ6ZXZlYnN2bWFydG9pamdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3OTYzMDAsImV4cCI6MjA4MDM3MjMwMH0.2kqZubRIn4NdiU6ud0EwjghbYxfgzn1qL3OH-_uwMnI"
         run: |
-          URL="https://spyrzevebsvmartoijgl.supabase.co/rest/v1/"
+          echo "🔄 Tentando conectar ao Supabase..."
           
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
-          echo "Status retornado: $STATUS"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/?limit=1" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
           
-          if [[ "$STATUS" =~ ^(200|401|406|403)$ ]]; then
-            echo "✅ Sucesso! Projeto mantido ativo."
+          echo "📊 Status HTTP retornado: $STATUS"
+          
+          if [[ "$STATUS" =~ ^(200|401|406|403|206)$ ]]; then
+            echo "✅ SUCESSO! Projeto mantido ativo."
+            echo "🕐 Data: $(date)"
+            exit 0
           else
-            echo "⚠️ Status inesperado: $STATUS"
+            echo "❌ ERRO! Status inesperado: $STATUS"
+            exit 1
           fi
