@@ -13,22 +13,40 @@ jobs:
       - name: Ping Supabase Database
         env:
           SUPABASE_URL: "https://spyrzevebsvmartoijgl.supabase.co"
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          echo "🔄 Tentando conectar ao Supabase..."
+          echo "🔄 Executando keep-alive real no banco de dados..."
           
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            "${SUPABASE_URL}/rest/v1/?limit=1" \
-            -H "apikey: ${SUPABASE_ANON_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+          # Passo 1: Inserir registro na tabela heartbeat
+          echo "📝 Inserindo registro de keep-alive..."
+          INSERT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/keepalive_heartbeat" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d '{"source": "github-actions"}')
           
-          echo "📊 Status HTTP retornado: $STATUS"
+          echo "Status INSERT: $INSERT_STATUS"
           
-          if [[ "$STATUS" =~ ^(200|401|406|403|206)$ ]]; then
-            echo "✅ SUCESSO! Projeto mantido ativo."
+          # Passo 2: Limpar registros antigos (manter apenas últimos 10)
+          echo "🧹 Limpando registros antigos..."
+          DELETE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/keepalive_heartbeat?id=lt.$(curl -s "${SUPABASE_URL}/rest/v1/keepalive_heartbeat?order=id.desc&limit=1&select=id" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" | jq -r '.[0].id' 2>/dev/null || echo '0')" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -X DELETE)
+          
+          echo "Status DELETE: $DELETE_STATUS"
+          
+          # Passo 3: Verificar se tudo funcionou
+          if [[ "$INSERT_STATUS" =~ ^(200|201)$ ]]; then
+            echo "✅ SUCESSO! Banco de dados realmente acessado."
             echo "🕐 Data: $(date)"
             exit 0
           else
-            echo "❌ ERRO! Status inesperado: $STATUS"
+            echo "❌ ERRO! Status inesperado: $INSERT_STATUS"
             exit 1
           fi
