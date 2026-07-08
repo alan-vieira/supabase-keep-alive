@@ -2,7 +2,6 @@ name: Supabase Keep-Alive
 
 on:
   schedule:
-    # Executa toda segunda e quinta às 12:00 UTC (9h no horário de Brasília)
     - cron: '0 12 * * 1,4'
   workflow_dispatch:
 
@@ -13,40 +12,56 @@ jobs:
       - name: Ping Supabase Database
         env:
           SUPABASE_URL: "https://spyrzevebsvmartoijgl.supabase.co"
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          echo "🔄 Executando keep-alive real no banco de dados..."
+          echo "🔄 Executando keep-alive real no banco..."
+          
+          # Verificar se a chave está configurada
+          if [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "❌ ERRO: SUPABASE_ANON_KEY não está configurada!"
+            exit 1
+          fi
+          
+          echo "✅ Chave encontrada (tamanho: ${#SUPABASE_ANON_KEY} caracteres)"
           
           # Passo 1: Inserir registro na tabela heartbeat
-          echo "📝 Inserindo registro de keep-alive..."
-          INSERT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          echo "📝 Inserindo registro na tabela keepalive_heartbeat..."
+          
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
             "${SUPABASE_URL}/rest/v1/keepalive_heartbeat" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
             -d '{"source": "github-actions"}')
           
-          echo "Status INSERT: $INSERT_STATUS"
+          # Extrair status HTTP
+          STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | grep -v "HTTP_STATUS:")
           
-          # Passo 2: Limpar registros antigos (manter apenas últimos 10)
-          echo "🧹 Limpando registros antigos..."
-          DELETE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            "${SUPABASE_URL}/rest/v1/keepalive_heartbeat?id=lt.$(curl -s "${SUPABASE_URL}/rest/v1/keepalive_heartbeat?order=id.desc&limit=1&select=id" \
-              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" | jq -r '.[0].id' 2>/dev/null || echo '0')" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -X DELETE)
+          echo "📊 Status HTTP: $STATUS"
+          if [ -n "$BODY" ]; then
+            echo "📄 Resposta: $BODY"
+          fi
           
-          echo "Status DELETE: $DELETE_STATUS"
-          
-          # Passo 3: Verificar se tudo funcionou
-          if [[ "$INSERT_STATUS" =~ ^(200|201)$ ]]; then
+          # Passo 2: Verificar se funcionou
+          if [[ "$STATUS" =~ ^(200|201)$ ]]; then
             echo "✅ SUCESSO! Banco de dados realmente acessado."
             echo "🕐 Data: $(date)"
+            
+            # Passo 3: Limpar registros antigos (manter últimos 5)
+            echo "🧹 Limpando registros antigos..."
+            curl -s "${SUPABASE_URL}/rest/v1/keepalive_heartbeat?id=not.in.(select id from keepalive_heartbeat order by id desc limit 5)" \
+              -H "apikey: ${SUPABASE_ANON_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+              -X DELETE > /dev/null 2>&1 || echo "⚠️ Limpeza falhou (não crítico)"
+            
             exit 0
           else
-            echo "❌ ERRO! Status inesperado: $INSERT_STATUS"
+            echo "❌ ERRO! Status: $STATUS"
+            echo "💡 Possíveis causas:"
+            echo "   - Tabela 'keepalive_heartbeat' não existe no Supabase"
+            echo "   - Políticas RLS não foram configuradas"
+            echo "   - Chave API incorreta"
             exit 1
           fi
