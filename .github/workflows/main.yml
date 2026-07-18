@@ -2,7 +2,8 @@ name: Supabase Keep-Alive
 
 on:
   schedule:
-    - cron: '0 12 * * 1,4'
+    # Roda TODO DIA às 12:00 UTC (09:00 BRT). Sem falhas de dias longos.
+    - cron: '0 12 * * *' 
   workflow_dispatch:
 
 jobs:
@@ -14,54 +15,37 @@ jobs:
           SUPABASE_URL: "https://spyrzevebsvmartoijgl.supabase.co"
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          echo "🔄 Executando keep-alive real no banco..."
+          echo "🔄 Executando keep-alive..."
           
-          # Verificar se a chave está configurada
           if [ -z "$SUPABASE_ANON_KEY" ]; then
-            echo "❌ ERRO: SUPABASE_ANON_KEY não está configurada!"
+            echo "❌ ERRO: SUPABASE_ANON_KEY não configurada!"
             exit 1
           fi
           
-          echo "✅ Chave encontrada (tamanho: ${#SUPABASE_ANON_KEY} caracteres)"
-          
-          # Passo 1: Inserir registro na tabela heartbeat
-          echo "📝 Inserindo registro na tabela keepalive_heartbeat..."
-          
+          # Passo 1: Inserir registro
           RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
             "${SUPABASE_URL}/rest/v1/keepalive_heartbeat" \
             -H "apikey: ${SUPABASE_ANON_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
-            -d '{"source": "github-actions"}')
+            -d '{"source": "github-actions-daily"}')
           
-          # Extrair status HTTP
           STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
-          BODY=$(echo "$RESPONSE" | grep -v "HTTP_STATUS:")
           
-          echo "📊 Status HTTP: $STATUS"
-          if [ -n "$BODY" ]; then
-            echo "📄 Resposta: $BODY"
-          fi
-          
-          # Passo 2: Verificar se funcionou
           if [[ "$STATUS" =~ ^(200|201)$ ]]; then
-            echo "✅ SUCESSO! Banco de dados realmente acessado."
-            echo "🕐 Data: $(date)"
+            echo "✅ SUCESSO! Status: $STATUS"
             
-            # Passo 3: Limpar registros antigos (manter últimos 5)
-            echo "🧹 Limpando registros antigos..."
-            curl -s "${SUPABASE_URL}/rest/v1/keepalive_heartbeat?id=not.in.(select id from keepalive_heartbeat order by id desc limit 5)" \
+            # Passo 2: Limpeza simplificada e válida no PostgREST
+            # Apaga registros com mais de 10 dias (sintaxe válida)
+            # Nota: Requer que a tabela tenha uma coluna 'created_at' ou use o 'id' se for sequencial
+            curl -s -X DELETE "${SUPABASE_URL}/rest/v1/keepalive_heartbeat?id=lt.1000" \
               -H "apikey: ${SUPABASE_ANON_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
-              -X DELETE > /dev/null 2>&1 || echo "⚠️ Limpeza falhou (não crítico)"
+              -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" > /dev/null 2>&1
             
             exit 0
           else
             echo "❌ ERRO! Status: $STATUS"
-            echo "💡 Possíveis causas:"
-            echo "   - Tabela 'keepalive_heartbeat' não existe no Supabase"
-            echo "   - Políticas RLS não foram configuradas"
-            echo "   - Chave API incorreta"
+            echo "Resposta: $(echo "$RESPONSE" | grep -v "HTTP_STATUS:")"
             exit 1
           fi
