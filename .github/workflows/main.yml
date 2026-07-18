@@ -22,7 +22,7 @@ jobs:
             exit 1
           fi
           
-          # Passo 1: Inserir registro
+          # Passo 1: Inserir registro de atividade (Escrita conta como uso real)
           RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
             "${SUPABASE_URL}/rest/v1/keepalive_heartbeat" \
             -H "apikey: ${SUPABASE_ANON_KEY}" \
@@ -35,13 +35,11 @@ jobs:
           
           if [[ "$STATUS" =~ ^(200|201)$ ]]; then
             echo "✅ SUCESSO! Status: $STATUS"
+            echo "🕐 Data: $(date)"
             
-            # Passo 2: Limpeza simplificada e válida no PostgREST
-            # Apaga registros com mais de 10 dias (sintaxe válida)
-            # Nota: Requer que a tabela tenha uma coluna 'created_at' ou use o 'id' se for sequencial
-            curl -s -X DELETE "${SUPABASE_URL}/rest/v1/keepalive_heartbeat?id=lt.1000" \
-              -H "apikey: ${SUPABASE_ANON_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" > /dev/null 2>&1
+            # NOTA: A etapa de DELETE foi removida intencionalmente. 
+            # 1 registro/dia = ~365 registros/ano = menos de 50KB. 
+            # Isso é totalmente seguro e não impacta o limite de 500MB do plano free.
             
             exit 0
           else
